@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis_secure
+    command: redis-server --requirepass password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - redis_net
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/db
+    restart: unless-stopped
+    networks:
+      - redis_net
+
+volumes:
+  redis_data:
+    name: redis_data
+  redisinsight_data:
+    name: redisinsight_data
+
+networks:
+  redis_net:
+    name: redis_network
+    driver: bridge
