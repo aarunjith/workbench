@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict, field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 from datetime import datetime
 from pymongo import MongoClient, ReturnDocument
 from multiprocessing import Queue
@@ -12,9 +12,11 @@ logger = getLogger(__name__)
 @dataclass
 class ListenerMetadata:
     listener_id: str
+    listener_type: Literal["agent", "tool"]
+    listener_name: str
     created_at: Optional[datetime] = None
     last_active: Optional[datetime] = None
-    status: str = "active"
+    status: Literal["active", "inactive"] = "active"
     usage: int = 0
     description: str = ""
     input_schema: Dict[str, Any] = field(default_factory=dict)
@@ -23,6 +25,8 @@ class ListenerMetadata:
     def to_dict(self):
         return {
             "listener_id": self.listener_id,
+            "listener_type": self.listener_type,
+            "listener_name": self.listener_name,
             "created_at": self.created_at.isoformat(),
             "last_active": self.last_active.isoformat(),
             "status": self.status,

@@ -1,13 +1,12 @@
 import time
-from threading import Thread
 from typing import Dict, Any
-from workbench.listener import Listener, Message
-from workbench.queue_manager import QueueManager, ListenerMetadata
+from workbench import Listener, Message, QueueManager, ListenerMetadata
 from logging import getLogger
 
 logger = getLogger(__name__)
 
 # Create queue manager and event
+# This can be passed to multiple listeners to enable them to communicate with each other
 queue_manager = QueueManager()
 
 metadata = ListenerMetadata(listener_id="1")  # Only required field
@@ -27,11 +26,7 @@ logger.info(
 )
 
 # Start listener in a separate thread
-listener_thread = Thread(target=test_listener.listen)
-listener_thread.daemon = True
-listener_thread.start()
-
-logger.info("Listener started")
+listener_thread = test_listener.listen()
 time.sleep(2)
 
 # Create and send test message
@@ -54,7 +49,7 @@ except KeyboardInterrupt:
     logger.info("Shutting down...")
 finally:
     test_listener.stop()
-    listener_thread.join(timeout=2)
     # Clean up
+    listener_thread.join(timeout=2)
     queue_manager.detach_listener(test_listener.listener_id)
     queue_manager.close()
