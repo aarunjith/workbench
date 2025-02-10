@@ -69,7 +69,7 @@ class QueueManager:
     @cache(prefix="listener", kwarg_name="listener_id", ex=3600)
     def attach_listener(
         self, listener_id: str, metadata: ListenerMetadata, stop_event: Any
-    ):
+    ) -> Dict[str, Any]:
         """
         Register a new listener with the queue manager
         """
@@ -114,7 +114,7 @@ class QueueManager:
         logger.info(f"Listener {listener_id} detached")
 
     @from_cache(prefix="listener", kwarg_name="listener_id", ex=3600)
-    def get_listener_metadata(self, listener_id: str) -> Optional[ListenerMetadata]:
+    def get_listener_metadata(self, listener_id: str) -> Optional[Dict[str, Any]]:
         """
         Fetch listener metadata from cache first, then DB
         """
@@ -130,8 +130,8 @@ class QueueManager:
             return metadata
         return None
 
-    @from_cache(prefix="listeners", kwarg_name="status", ex=3600)
-    def get_all_listeners(self, status: str = "active") -> List[dict]:
+    # @from_cache(prefix="listeners", kwarg_name="status", ex=3600) # IMPROVE: Add caching, just status for caching is not good enough
+    def get_all_listeners(self, status: str = "active") -> List[Dict[str, Any]]:
         """
         Fetch all listeners with the given status
         """

@@ -1,0 +1,7 @@
+jsonschema
+anthropic
+'anthropic[bedrock]'
+openai
+pydantic
+pymongo
+redis

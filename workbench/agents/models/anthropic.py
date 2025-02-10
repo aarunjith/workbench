@@ -32,7 +32,7 @@ class AnthropicModel(BaseLLM):
             return []
         tools_input = [
             {
-                "name": f"{listener.listener_name}||{listener.listener_id}",
+                "name": f"{listener.listener_name}__{listener.listener_id}",
                 "description": listener.description,
                 "input_schema": listener.input_schema,
             }
@@ -64,28 +64,27 @@ class AnthropicModel(BaseLLM):
 
     def parse_response(self, response) -> ModelResponse:
         logger.debug(f"Response to parse: {response}")
+        response_text = ""
+        tool_use = False
+        tool_name = None
+        target_listener = None
+        tool_args = None
+        for block in response.content:
+            if block.type == "text":
+                response_text = block.text
+            elif block.type == "tool_use":
+                tool_args = block.input
+                tool_name, target_listener = block.name.split("__")
         if response.stop_reason == "tool_use":
-            for block in response.content:
-                if block.type == "text":
-                    response_text = block.text
-                elif block.type == "tool_use":
-                    tool_args = block.input
-                    tool_name, target_listener = block.name.split("||")
-            return ModelResponse(
-                response_text=response_text,
-                tool_use=True,
-                tool_name=tool_name,
-                target_listener=target_listener,
-                tool_args=tool_args,
-                output_tokens=response.usage.output_tokens,
-                input_tokens=response.usage.input_tokens,
-            )
-        elif response.stop_reason == "end_turn":
-            return ModelResponse(
-                response_text=response.content[0].text,
-                tool_use=False,
-                output_tokens=response.usage.output_tokens,
-                input_tokens=response.usage.input_tokens,
-            )
+            tool_use = True
         else:
-            raise ValueError(f"Unknown stop reason: {response.stop_reason}")
+            tool_use = False
+        return ModelResponse(
+            response_text=response_text,
+            tool_use=tool_use,
+            tool_name=tool_name,
+            target_listener=target_listener,
+            tool_args=tool_args,
+                output_tokens=response.usage.output_tokens,
+            input_tokens=response.usage.input_tokens,
+        )

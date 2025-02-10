@@ -2,11 +2,12 @@ from abc import ABC, abstractmethod
 from queue import Empty
 import json
 from dataclasses import dataclass, asdict
-from typing import TypeVar, Dict, Any, List
+from typing import TypeVar, Dict, Any, List, Optional
 from logging import getLogger, basicConfig, INFO
 from threading import Event, Thread
 from datetime import datetime
 from .queue_manager import QueueManager, ListenerMetadata
+from uuid import uuid4
 
 # Configure logging
 basicConfig(level=INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -22,6 +23,8 @@ class Message:
     data: Dict[str, Any]
     target_listener: str
     accessed: bool
+    conversation_id: Optional[str] = None
+    needs_response: bool = False
 
     def to_json(self):
         return json.dumps(asdict(self))
@@ -53,6 +56,9 @@ class Listener(ABC):
             stop_event=self.stop_event,
         )
 
+    def _generate_conversation_id(self) -> str:
+        return f'conv-{uuid4().hex[:6]}'
+
     @abstractmethod
     def _listen(self, message: Message) -> Dict[str, Any]:
         logger.warning(
@@ -66,24 +72,40 @@ class Listener(ABC):
         def _listen_loop():
             while not self.stop_event.is_set():
                 try:
+                    # Pop one message from the queue
                     message = self.queue_manager.message_queue.get(timeout=1)
                     message = Message.from_json(message)
                     logger.debug(f"Received message: {message}")
+                    # If the message is not part of a conversation, generate a new one
+                    # For tools detatched conversations are not possible
+                    # Either humans call the tool directly or an agent calls the tool
+                    if message.conversation_id is None:
+                        # IMPROVE: If the human calls it directly we will have a random detached conversation id
+                        message.conversation_id = self._generate_conversation_id()
+                        logger.debug(f"Generated conversation id: {message.conversation_id}")
+                    # IMPROVE: The only validation is this. Every connected listener can access the data
                     if (
                         not message.accessed
                         and message.target_listener == self.listener_id
                     ):
                         output_data = self._listen(message)
+                        # This output data has to be in the schema that the sender is expecting
                         self.queue_manager.update_listener_activity(
                             listener_id=self.listener_id
                         )
-                        output_message = Message(
-                            listener_id=self.listener_id,
-                            data=output_data,
-                            target_listener=message.listener_id,
-                            accessed=False,
-                        )
-                        self._send(output_message)
+                        # If the listener needs a response, we need to send a message to the sender
+                        if message.needs_response:
+                            # This is terminal and do not need a response from the source
+                            output_message = Message(
+                                listener_id=self.listener_id,
+                                data=output_data,
+                                target_listener=message.listener_id,
+                                accessed=False,
+                                conversation_id=message.conversation_id,
+                                needs_response=False,
+                            )
+                            self._send(output_message)
+                        # Replace the original message with the accessed one so no one accesses it again
                         message.accessed = True
                         self._send(message)
                 except Empty:
@@ -118,3 +140,9 @@ class Listener(ABC):
                 if listener["listener_id"] != self.listener_id
             ]
         return [ListenerMetadata(**listener) for listener in listeners]
+    
+    def _generate_listener_id(self, prefix: str = "listener") -> str:
+        # Ensure the ID matches ^[a-zA-Z0-9_-]{1,64}$ regex pattern
+        # uuid4 hex will only contain alphanumeric chars, and we add "listener-" prefix
+        # Total length will be "listener-" (8 chars) + 6 hex chars = 14 chars, well under 64 limit
+        return f"{prefix}-{uuid4().hex[:6]}"
