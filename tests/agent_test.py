@@ -103,8 +103,8 @@ email_sender_tool_thread = email_sender_tool.listen()
 print("Email sender tool is listening.....")
 
 # Sending a test message to the agent
-agent._send(Message(
-    listener_id="human",
+human._send(Message(
+    listener_id=human.listener_id,
     data=("I have trouble logging in to my Steam account."
       " I have tried all the ways to get in but so far nothing has worked."
       " Please help me. The steam customer service email is: support@steampowered.com"),
