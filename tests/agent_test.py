@@ -10,8 +10,10 @@ from workbench import (Agent,
                        Message)
 from workbench.agents import AgentConfig
 from workbench.tools import ToolConfig
+from workbench import MongoStateManager
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
+from workbench import HumanConfig, CLIHuman
 import getpass
 import os
 
@@ -26,7 +28,8 @@ loggers = [
     logging.getLogger('workbench.agents'),
     logging.getLogger('workbench.tools'),
     logging.getLogger('workbench.listener'),
-    logging.getLogger('workbench.queue_manager')
+    logging.getLogger('workbench.queue_manager'),
+    logging.getLogger('workbench.humans')
 ]
 
 for logger in loggers:
@@ -36,10 +39,12 @@ for logger in loggers:
 os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
 
 queue_manager = QueueManager()
+state_manager = MongoStateManager()
 
 agent_config = AgentConfig(
     agent_name="test_agent",
     queue_manager=queue_manager,
+    state_manager=state_manager,
     model_config=ModelConfig(
         model_name="claude-3-5-sonnet-20241022",
     ),
@@ -50,6 +55,17 @@ agent_config = AgentConfig(
 agent = Agent(agent_config)
 agent_thread = agent.listen()
 print("Agent is listening.....")
+
+human_config = HumanConfig(
+    human_name="human123",
+    queue_manager=queue_manager,
+    state_manager=state_manager,
+    description="A human that can help any agent if they are stuck assisting the user.",
+)
+
+human = CLIHuman(human_config)
+human_thread = human.listen()
+print("Human is listening.....")
 
 
 

@@ -12,7 +12,7 @@ logger = getLogger(__name__)
 @dataclass
 class ListenerMetadata:
     listener_id: str
-    listener_type: Literal["agent", "tool"]
+    listener_type: Literal["agent", "tool", "human"]
     listener_name: str
     created_at: Optional[datetime] = None
     last_active: Optional[datetime] = None

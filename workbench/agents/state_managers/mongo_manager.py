@@ -11,17 +11,17 @@ class MongoStateManager(StateManager):
         self.db = self.client['listener_db']
         self.collection = self.db['states']
 
-    def get_state(self, conversation_id: str) -> State:
+    def get_state(self, conversation_id: str) -> Dict[str, Any]:
         state = self.collection.find_one({'conversation_id': conversation_id},
                                          projection={'_id': False})
         if state is None:
-            return State(conversation_id=conversation_id, messages=[], metadata={})
-        return State.from_dict(state)
+            return {"conversation_id": conversation_id, "messages": [], "metadata": {}}
+        return state
 
     def update_state(self, conversation_id: str, state: State) -> Dict[str, Any]:
         updated_state = self.collection.find_one_and_update(
             {'conversation_id': conversation_id},
-            {'$set': state.to_dict()},
+            {'$set': state},
             upsert=True,
             return_document=ReturnDocument.AFTER,
             projection={'_id': False}
