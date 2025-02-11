@@ -16,7 +16,6 @@ class ModelResponse:
     input_tokens: Optional[int] = None
 
 
-
 @dataclass
 class ModelConfig:
     model_name: str
@@ -48,20 +47,24 @@ class BaseLLM(ABC):
         self.temperature = model_config.temperature
         self.system_prompt = model_config.system_prompt
         self.stream = model_config.stream
+
     @abstractmethod
-    def generate_response(self, messages: List[AgentMessage],
-                          connected_listeners: Optional[List[ListenerMetadata]] = None) -> ModelResponse:
+    async def generate_response(
+        self,
+        messages: List[AgentMessage],
+        connected_listeners: Optional[List[ListenerMetadata]] = None,
+    ) -> ModelResponse:
         """Generate a response from the LLM"""
         pass
 
     @abstractmethod
-    def construct_tools_input(
+    async def construct_tools_input(
         self, connected_listeners: List[ListenerMetadata]
     ) -> List[Dict[str, Any]]:
         """Construct the tools input for different models as they require different formats"""
         pass
 
     @abstractmethod
-    def parse_response(self, response: Dict[str, Any]) -> ModelResponse:
+    async def parse_response(self, response: Dict[str, Any]) -> ModelResponse:
         """Parse the LLM response and return the data"""
         pass

@@ -6,6 +6,7 @@ from uuid import uuid4
 from jsonschema import validate, ValidationError
 from abc import ABC, abstractmethod
 
+
 @dataclass
 class ToolConfig:
     tool_name: str
@@ -13,6 +14,7 @@ class ToolConfig:
     queue_manager: QueueManager
     input_schema: Dict[str, Any]
     output_schema: Dict[str, Any]
+
 
 class Tool(Listener, ABC):
     def __init__(self, config: ToolConfig):
@@ -29,17 +31,17 @@ class Tool(Listener, ABC):
         self.output_schema = config.output_schema
 
         super().__init__(config.queue_manager, tool_metadata)
-    
-    def _validate_input(self, message: Message) -> None:
+
+    async def _validate_input(self, message: Message) -> None:
         try:
             validate(message.data, self.input_schema)
         except ValidationError as e:
             raise ValueError(f"Invalid input: {e}")
 
-    def _listen(self, message: Message) -> Dict[str, Any]:
-        self._validate_input(message)
-        return self.execute(message.data)
-    
+    async def _listen(self, message: Message) -> Dict[str, Any]:
+        await self._validate_input(message)
+        return await self.execute(message.data)
+
     @abstractmethod
-    def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         pass

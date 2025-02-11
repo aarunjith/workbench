@@ -1,4 +1,4 @@
-from redis import Redis
+from redis.asyncio import Redis
 import os
 import json
 from logging import getLogger
@@ -9,8 +9,15 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "password")
 REDIS_SSL = bool(int(os.getenv("REDIS_SSL", "0")))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
-REDIS = Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD)
+REDIS = Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,
+    db=REDIS_DB,
+    decode_responses=True,
+)
 
 
 def cache_data(key, data, **kwargs):

@@ -1,5 +1,5 @@
 from .base_llm import BaseLLM, ModelConfig, ModelResponse
-from anthropic import Anthropic, AnthropicBedrock
+from anthropic import AsyncAnthropic, AsyncAnthropicBedrock
 from typing import List, Dict, Any, Optional
 from ..agent_messages import AgentMessage
 from ...listener import ListenerMetadata
@@ -20,10 +20,10 @@ class AnthropicModel(BaseLLM):
             ), "Response format must be a string"
             self.system_prompt = f"{self.system_prompt}\n\n{f'Respond in the following format only: \n{model_config.response_format}'}"
         if model_config.hosting_provider == "bedrock":
-            self.client = AnthropicBedrock()
+            self.client = AsyncAnthropicBedrock()
         else:
             assert "ANTHROPIC_API_KEY" in os.environ, "Anthropic API key not found"
-            self.client = Anthropic()
+            self.client = AsyncAnthropic()
 
     def construct_tools_input(
         self, connected_listeners: List[ListenerMetadata]
@@ -41,7 +41,7 @@ class AnthropicModel(BaseLLM):
         logger.debug(f"Tools input: {tools_input}")
         return tools_input
 
-    def generate_response(
+    async def generate_response(
         self,
         messages: List[AgentMessage],
         connected_listeners: Optional[List[ListenerMetadata]] = None,
@@ -49,7 +49,8 @@ class AnthropicModel(BaseLLM):
         logger.debug(f"Messages: {messages}")
         messages = [message.model_dump() for message in messages]
         tools_input = self.construct_tools_input(connected_listeners)
-        response = self.client.messages.create(
+
+        response = await self.client.messages.create(
             messages=messages,
             system=self.system_prompt,
             model=self.model_name,
@@ -57,6 +58,7 @@ class AnthropicModel(BaseLLM):
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
+
         logger.debug(f"Response: {response}")
         parsed_response = self.parse_response(response)
         logger.debug(f"Parsed response: {parsed_response}")
@@ -85,6 +87,6 @@ class AnthropicModel(BaseLLM):
             tool_name=tool_name,
             target_listener=target_listener,
             tool_args=tool_args,
-                output_tokens=response.usage.output_tokens,
+            output_tokens=response.usage.output_tokens,
             input_tokens=response.usage.input_tokens,
         )

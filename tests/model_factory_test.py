@@ -1,18 +1,27 @@
 from workbench import ModelFactory, ModelConfig, ModelResponse, AgentMessage
 import os, getpass
+import asyncio
 
-os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
-test_config = ModelConfig(
-    model_name="claude-3-5-sonnet-20241022",
-    system_prompt="You are an AI agent. Your goal is to assist the user with their questions.",
-)
 
-model = ModelFactory.create(test_config)
+async def main():
+    os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
+    test_config = ModelConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        system_prompt="You are an AI agent. Your goal is to assist the user with their questions.",
+    )
 
-print(model)
+    model = ModelFactory.create(test_config)
 
-messages = [AgentMessage(role="user", content="What is the weather in San Francisco?")]
+    print(model)
 
-response = model.generate_response(messages)
+    messages = [
+        AgentMessage(role="user", content="What is the weather in San Francisco?")
+    ]
 
-print(response)
+    response = await model.generate_response(messages)
+
+    print(response)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

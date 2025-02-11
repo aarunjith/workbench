@@ -4,4 +4,8 @@ anthropic
 openai
 pydantic
 pymongo
+motor
 redis
+ollama
+prompt_toolkit
+aiohttp

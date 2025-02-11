@@ -1,17 +1,15 @@
 from abc import ABC, abstractmethod
-from queue import Empty
 import json
+import asyncio
 from dataclasses import dataclass, asdict
 from typing import TypeVar, Dict, Any, List, Optional
 from logging import getLogger, basicConfig, INFO
-from threading import Event, Thread
 from datetime import datetime
 from .queue_manager import QueueManager, ListenerMetadata
 from uuid import uuid4
 
 # Configure logging
 basicConfig(level=INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
 logger = getLogger(__name__)
 
 T = TypeVar("T", bound="Message")
@@ -39,110 +37,121 @@ class Listener(ABC):
         self.queue_manager = queue_manager
         self.listener_id = metadata.listener_id
         self.metadata = metadata
-        self.stop_event = Event()
-        self._register()
+        self.listener_task = None
         logger.info(f"Listener initialized with id: {self.listener_id}")
 
-    def _register(self):
-        """
-        Register this listener with the queue manager
-        """
+    async def init_async(self):
+        """Async initialization separate from __init__"""
+        await self._register()
+        logger.info(f"Listener {self.listener_id} fully initialized")
+        return self
+
+    async def _register(self):
+        """Register this listener with the queue manager"""
         metadata = self.metadata
         metadata.created_at = datetime.now()
         metadata.last_active = datetime.now()
-        self.queue_manager.attach_listener(
-            listener_id=self.listener_id,
-            metadata=metadata,
-            stop_event=self.stop_event,
+        await self.queue_manager.attach_listener(
+            listener_id=self.listener_id, metadata=metadata
         )
 
     def _generate_conversation_id(self) -> str:
-        return f'conv-{uuid4().hex[:6]}'
+        return f"conv-{uuid4().hex[:6]}"
 
     @abstractmethod
-    def _listen(self, message: Message) -> Dict[str, Any]:
+    async def _listen(self, message: Message) -> Dict[str, Any]:
+        """
+        Abstract method to be implemented by specific listeners.
+        Must be implemented as a coroutine.
+        """
         logger.warning(
             f"Not implemented listener {self.listener_id} received message: {message}"
         )
-        # This method should return a dictionary of data to be sent to the next listener
-        # Ideally you should do some processing here
         return message.data
 
-    def listen(self) -> Thread:
-        def _listen_loop():
-            while not self.stop_event.is_set():
-                try:
-                    # Pop one message from the queue
-                    message = self.queue_manager.message_queue.get(timeout=1)
-                    message = Message.from_json(message)
-                    logger.debug(f"Received message: {message}")
-                    # If the message is not part of a conversation, generate a new one
-                    # For tools detatched conversations are not possible
-                    # Either humans call the tool directly or an agent calls the tool
-                    if message.conversation_id is None:
-                        # IMPROVE: If the human calls it directly we will have a random detached conversation id
-                        message.conversation_id = self._generate_conversation_id()
-                        logger.debug(f"Generated conversation id: {message.conversation_id}")
-                    # IMPROVE: The only validation is this. Every connected listener can access the data
-                    if (
-                        not message.accessed
-                        and message.target_listener == self.listener_id
-                    ):
-                        output_data = self._listen(message)
-                        # This output data has to be in the schema that the sender is expecting
-                        self.queue_manager.update_listener_activity(
-                            listener_id=self.listener_id
+    async def start(self):
+        """Start the async listener"""
+        self.listener_task = asyncio.create_task(self._listen_loop())
+        return self.listener_task
+
+    async def _listen_loop(self):
+        """Main asynchronous listening loop"""
+        while True:
+            try:
+                # Get message with timeout
+                json_message = await self.queue_manager.async_get_message(
+                    listener_id=self.listener_id, timeout=1
+                )
+                message = Message.from_json(json_message)
+
+                if message.conversation_id is None:
+                    message.conversation_id = self._generate_conversation_id()
+                    logger.debug(
+                        f"Generated conversation id: {message.conversation_id}"
+                    )
+
+                if not message.accessed and message.target_listener == self.listener_id:
+                    logger.debug(f"Received message by {self.listener_id}: {message}")
+
+                    # Process message using the subclass implementation
+                    output_data = await self._listen(message)
+
+                    # Update activity
+                    await self.queue_manager.async_update_listener_activity(
+                        self.listener_id
+                    )
+
+                    # Handle response if needed
+                    if message.needs_response or self.metadata.listener_type == "human":
+                        needs_response = self.metadata.listener_type == "human"
+                        output_message = Message(
+                            listener_id=self.listener_id,
+                            data=output_data,
+                            target_listener=message.listener_id,
+                            accessed=False,
+                            conversation_id=message.conversation_id,
+                            needs_response=needs_response,
                         )
-                        # If the listener needs a response, we need to send a message to the sender
-                        if message.needs_response:
-                            # This is terminal and do not need a response from the source
-                            output_message = Message(
-                                listener_id=self.listener_id,
-                                data=output_data,
-                                target_listener=message.listener_id,
-                                accessed=False,
-                                conversation_id=message.conversation_id,
-                                needs_response=False,
-                            )
-                            self._send(output_message)
-                        # Replace the original message with the accessed one so no one accesses it again
-                        message.accessed = True
-                        self._send(message)
-                except Empty:
-                    continue
-                except Exception as e:
-                    logger.error(f"Unexpected error while processing message: {str(e)}")
-                    continue
-            logger.info(f"Listener {self.listener_id} stopped")
+                        await self._send(output_message)
 
-        # Create and start daemon thread
-        listener_thread = Thread(target=_listen_loop, daemon=True)
-        listener_thread.start()
-        logger.info(f"Listener {self.listener_id} started")
-        return listener_thread
+            except asyncio.TimeoutError:
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                logger.info(f"Listener {self.listener_id} task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Unexpected error while processing message: {str(e)}")
+                await asyncio.sleep(0.1)  # Prevent tight loop on repeated errors
 
-    def _send(self, data: Message):
-        data = data.to_json()
-        logger.debug(f"Sending data: {data}")
-        self.queue_manager.message_queue.put(data)
+    async def _send(self, data: Message):
+        """Asynchronous message sending"""
+        json_data = data.to_json()
+        logger.debug(f"Sending data: {json_data}")
+        await self.queue_manager.async_put_message(json_data)
 
-    def stop(self):
-        # Queue manager will stop the listener thread
-        self.queue_manager.detach_listener(self.listener_id)
+    async def stop(self):
+        """Stop the listener"""
+        if self.listener_task:
+            self.listener_task.cancel()
+            try:
+                await self.listener_task
+            except asyncio.CancelledError:
+                pass
+        await self.queue_manager.async_detach_listener(self.listener_id)
+        logger.info(f"Listener {self.listener_id} stopped")
 
-    def _get_connected_listeners(self, others: bool = True) -> List[ListenerMetadata]:
-        listeners = self.queue_manager.get_all_listeners(status="active")
+    async def get_connected_listeners(
+        self, others: bool = True
+    ) -> List[ListenerMetadata]:
+        """Get all connected listeners"""
+        listeners = await self.queue_manager.async_get_all_listeners(status="active")
         if others:
-            # Filter out the current listener
             return [
                 ListenerMetadata(**listener)
                 for listener in listeners
                 if listener["listener_id"] != self.listener_id
             ]
         return [ListenerMetadata(**listener) for listener in listeners]
-    
+
     def _generate_listener_id(self, prefix: str = "listener") -> str:
-        # Ensure the ID matches ^[a-zA-Z0-9_-]{1,64}$ regex pattern
-        # uuid4 hex will only contain alphanumeric chars, and we add "listener-" prefix
-        # Total length will be "listener-" (8 chars) + 6 hex chars = 14 chars, well under 64 limit
         return f"{prefix}-{uuid4().hex[:6]}"
