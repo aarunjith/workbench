@@ -4,7 +4,7 @@ from ..agent_messages import AgentMessage
 from ...listener import ListenerMetadata
 from ollama import AsyncClient
 from logging import getLogger
-
+import re
 logger = getLogger(__name__)
 
 
@@ -46,17 +46,16 @@ class OllamaModel(BaseLLM):
         connected_listeners: Optional[List[ListenerMetadata]] = None,
     ) -> ModelResponse:
         logger.debug(f"Messages: {messages}")
-        if self.system_prompt:
-            current_messages = [{"role": "system", "content": self.system_prompt}]
-        else:
-            current_messages = []
-        messages = [*current_messages, *[message.model_dump() for message in messages]]
         tools_input = self.construct_tools_input(connected_listeners)
+        system_prompt = self.get_system_prompt(tools_input)
+        if self.system_prompt:
+            system_prompt = f"{system_prompt}\n\n{self.system_prompt}"
+        current_messages = [{"role": "system", "content": system_prompt}]
+        messages = [*current_messages, *[message.model_dump() for message in messages]]
 
         response = await self.client.chat(
             messages=messages,
             model=self.model_name,
-            tools=tools_input,
         )
 
         logger.debug(f"Response: {response}")
@@ -64,7 +63,19 @@ class OllamaModel(BaseLLM):
         logger.debug(f"Parsed response: {parsed_response}")
         return parsed_response
 
-    def parse_response(self, response) -> ModelResponse:
+    def get_system_prompt(self, tools_input: List[Dict[str, Any]]) -> str:
+        template = """You are an expert in composing functions. You are given a question and a set of possible functions. 
+        Based on the question, you will need to make one or more function/tool calls to achieve the purpose. 
+        If none of the function can be used, point it out. If the given question lacks the parameters required by the function,
+        also point it out. You should only return the function call in tools call sections.
+
+        If you decide to invoke any of the function(s), you MUST put it in the format of [func_name1(params_name1=params_value1, params_name2=params_value2...), func_name2(params)]\n
+        You SHOULD NOT include any other text in the response.
+
+        Here is a list of functions in JSON format that you can invoke.\n\n{functions}\n"""
+        return template.format(functions=tools_input)
+    
+    def parse_response(self, response: Dict[str, Any]) -> ModelResponse:
         logger.debug(f"Response to parse: {response}")
         response_text = ""
         tool_use = False
@@ -72,26 +83,21 @@ class OllamaModel(BaseLLM):
         target_listener = None
         tool_args = None
 
-        # Ollama returns a ChatResponse object with a message attribute
+        # Get the message content from the response
         if hasattr(response, "message"):
-            response_text = response.message.content or ""
-
-            # Check for tool calls
-            if hasattr(response.message, "tool_calls") and response.message.tool_calls:
+            response_text = response.message.content
+            parsed_content = self.parse_content(response_text)
+            if isinstance(parsed_content, list) and len(parsed_content) > 0:
                 tool_use = True
-                # Get the first tool call
-                tool_call = response.message.tool_calls[0]
-                if hasattr(tool_call, "function"):
-                    # Extract tool name and target listener from the function name
-                    # The name should be in format: tool_name__listener_id
-                    function_name = tool_call.function.name
-                    if "__" in function_name:
-                        tool_name, target_listener = function_name.split("__")
-                    else:
-                        # If no listener ID in the name, use the whole name as tool_name
-                        tool_name = function_name
-                    # Get the arguments as tool args
-                    tool_args = tool_call.function.arguments
+                # Get the first function call
+                first_call = parsed_content[0]
+                function_name = first_call["name"]
+                # Split function name into tool_name and target_listener if it contains "__"
+                if "__" in function_name:
+                    tool_name, target_listener = function_name.split("__")
+                else:
+                    tool_name = function_name
+                tool_args = first_call["args"]
 
         # Get token counts from the response
         input_tokens = getattr(response, "prompt_eval_count", 0)
@@ -106,3 +112,68 @@ class OllamaModel(BaseLLM):
             output_tokens=output_tokens,
             input_tokens=input_tokens,
         )
+
+    def parse_content(self, content: str) -> List[Dict]:
+        """
+        Parse content string into a list of dictionaries with 'name' and 'args' keys.
+        Handles multiple function calls within the same brackets, even when embedded in other text.
+        
+        Args:
+            content (str): Input string containing function calls
+            
+        Returns:
+            List[Dict]: List of parsed functions, where each function has:
+                - name: name of the function
+                - args: dictionary of function arguments
+                
+        Examples:
+            >>> parse_content("[func1(param1='value1'), func2(param2='value2')]")
+            [
+                {'name': 'func1', 'args': {'param1': 'value1'}},
+                {'name': 'func2', 'args': {'param2': 'value2'}}
+            ]
+            >>> parse_content("Here's what I'll do: [func1(param1='value1')] and that's it.")
+            [
+                {'name': 'func1', 'args': {'param1': 'value1'}}
+            ]
+        """
+        results = []
+        
+        # Find all content within square brackets that looks like function calls
+        bracket_pattern = r'\[([\w_-]+\([^]]*\)(?:\s*,\s*[\w_-]+\([^]]*\))*)\]'
+        bracket_matches = re.finditer(bracket_pattern, content)
+        
+        for bracket_match in bracket_matches:
+            function_calls_str = bracket_match.group(1)
+            # Split multiple function calls within the same brackets
+            function_calls = re.split(r'\s*,\s*(?=[\w_-]+\()', function_calls_str)
+            
+            for func_call in function_calls:
+                # Pattern to match function name and arguments
+                func_match = re.match(r'([\w_-]+)\((.*)\)', func_call)
+                
+                if func_match:
+                    func_name = func_match.group(1)
+                    args_str = func_match.group(2)
+                    
+                    # Parse arguments
+                    args = {}
+                    # Pattern to match key='value' pairs
+                    args_pattern = r"(\w+)='([^']*)'|(\w+)=([^,\s]+)"
+                    
+                    arg_matches = re.findall(args_pattern, args_str)
+                    for match in arg_matches:
+                        if match[0]:  # Quoted value
+                            key, value = match[0], match[1]
+                        else:  # Unquoted value
+                            key, value = match[2], match[3]
+                        args[key] = value
+                        
+                    results.append({
+                        'name': func_name,
+                        'args': args
+                    })
+        
+        if not results:
+            results = content
+        return results

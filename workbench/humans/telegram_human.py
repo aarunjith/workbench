@@ -3,6 +3,7 @@ from workbench.humans.human import Human, HumanConfig
 from workbench.listener import Message
 import aiohttp
 import asyncio
+import re
 from ..agents.state_managers import State
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,41 @@ class TelegramHuman(Human):
         self.updates_url = f"{self.base_url}/getUpdates"
         self.send_url = f"{self.base_url}/sendMessage"
 
+    def _escape_markdown(self, text: str) -> str:
+        """
+        Escape special characters for Telegram's MarkdownV2 format.
+
+        :param text: The text to escape
+        :return: The escaped text
+        """
+        # Characters that need to be escaped in MarkdownV2
+        special_chars = [
+            "_",
+            "*",
+            "[",
+            "]",
+            "(",
+            ")",
+            "~",
+            "`",
+            ">",
+            "#",
+            "+",
+            "-",
+            "=",
+            "|",
+            "{",
+            "}",
+            ".",
+            "!",
+        ]
+
+        # Escape each special character with a backslash
+        for char in special_chars:
+            text = text.replace(char, f"\\{char}")
+
+        return text
+
     async def _listen(self, message: Message):
         """
         When a message is addressed to this human, forward it to the Telegram user.
@@ -37,9 +73,12 @@ class TelegramHuman(Human):
 
         conv_history = conversation_state.messages
         conv_history_str = "\n".join(
-            [f"**{msg.role}:**\n{msg.content}" for msg in conv_history]
+            [
+                f"*{self._escape_markdown(msg.role)}:*\n{self._escape_markdown(msg.content)}"
+                for msg in conv_history
+            ]
         )
-        text = f"**Conversation History**\n\n{conv_history_str}\n\n"
+        text = f"*Conversation History*\n\n{conv_history_str}\n\n"
         logger.debug(f"Sending message to Telegram: {text}")
         response = await self._wait_for_response(text)
         return {"role": "user", "content": response}
@@ -58,7 +97,11 @@ class TelegramHuman(Human):
                         f"Current length of the telegram chat: {current_length}"
                     )
 
-            send_params = {"chat_id": self.chat_id, "text": message}
+            send_params = {
+                "chat_id": self.chat_id,
+                "text": message,
+                "parse_mode": "MarkdownV2",
+            }
             async with session.post(self.send_url, params=send_params) as response:
                 send_response = await response.json()
 
