@@ -77,6 +77,9 @@ class AnthropicModel(BaseLLM):
             elif block.type == "tool_use":
                 tool_args = block.input
                 tool_name, target_listener = block.name.split("__")
+                # Add tool call details to response text
+                tool_details = f"\n\nTool Call Details:\nTool: {tool_name}\nListener: {target_listener}\nArguments: {tool_args}"
+                response_text = response_text + tool_details if response_text else tool_details
         if response.stop_reason == "tool_use":
             tool_use = True
         else:
