@@ -1,6 +1,6 @@
 from ..listener import ListenerMetadata, Listener, Message
 from ..queue_manager import QueueManager
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from uuid import uuid4
 from jsonschema import validate, ValidationError
@@ -38,7 +38,9 @@ class Tool(Listener, ABC):
         except ValidationError as e:
             raise ValueError(f"Invalid input: {e}")
 
-    async def _listen(self, message: Message) -> Dict[str, Any]:
+    async def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         await self._validate_input(message)
         return await self.execute(message.data)
 

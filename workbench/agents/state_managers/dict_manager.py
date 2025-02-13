@@ -1,6 +1,6 @@
 from .base_manager import StateManager
 from .state import State
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 class DictStateManager(StateManager):
@@ -8,14 +8,18 @@ class DictStateManager(StateManager):
         # In-memory dictionary to store state per conversation_id
         self.state_dict: Dict[str, Dict[str, Any]] = {}
 
-    async def get_state(self, conversation_id: str) -> Dict[str, Any]:
+    async def get_state(
+        self, conversation_id: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        if metadata is None:
+            metadata = {}
         # Return saved state; if none exists, return a default state
         return self.state_dict.get(
             conversation_id,
             {
                 "conversation_id": conversation_id,
                 "messages": [],
-                "metadata": {},
+                "metadata": metadata,
             },
         )
 

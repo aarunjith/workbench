@@ -3,7 +3,7 @@ from workbench.humans.human import Human, HumanConfig
 from workbench.listener import Message
 import aiohttp
 import asyncio
-import re
+from typing import Dict, Any, Optional
 from ..agents.state_managers import State
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,9 @@ class TelegramHuman(Human):
 
         return text
 
-    async def _listen(self, message: Message):
+    async def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ):
         """
         When a message is addressed to this human, forward it to the Telegram user.
         """

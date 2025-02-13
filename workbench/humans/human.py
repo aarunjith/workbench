@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..listener import Listener, Message
 from ..queue_manager import QueueManager, ListenerMetadata
 from dataclasses import dataclass, field
@@ -38,7 +38,9 @@ class Human(Listener):
         self.state_manager = config.state_manager
 
     @abstractmethod
-    async def _listen(self, message: Message) -> Dict[str, Any]:
+    async def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Abstract method that should be implemented by concrete human interface classes.
         Should handle receiving and processing messages from the human user.

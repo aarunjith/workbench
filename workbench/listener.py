@@ -59,7 +59,9 @@ class Listener(ABC):
         return f"conv-{uuid4().hex[:6]}"
 
     @abstractmethod
-    async def _listen(self, message: Message) -> Dict[str, Any]:
+    async def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Abstract method to be implemented by specific listeners.
         Must be implemented as a coroutine.
@@ -84,7 +86,11 @@ class Listener(ABC):
                 )
                 message = Message.from_json(json_message)
 
+                metadata = None
                 if message.conversation_id is None:
+                    # Since we are generating a new conv id, this originated from a human
+                    # add the listener id to the conversation metadata
+                    metadata = {"origin": message.listener_id}
                     message.conversation_id = self._generate_conversation_id()
                     logger.debug(
                         f"Generated conversation id: {message.conversation_id}"
@@ -94,13 +100,20 @@ class Listener(ABC):
                     logger.debug(f"Received message by {self.listener_id}: {message}")
 
                     # Process message using the subclass implementation
-                    output_data = await self._listen(message)
+                    output_data = await self._listen(message, metadata=metadata)
+                    logger.debug(f"Output data: {output_data}")
                     if (
                         isinstance(output_data, dict)
                         and output_data.get("status") == "tool_call"
                     ):
                         # The agent is waiting for a response from the tool
                         continue
+
+                    if isinstance(output_data, dict) and output_data.get("override"):
+                        target_listener = output_data["override"]
+                        message.needs_response = True
+                    else:
+                        target_listener = message.listener_id
 
                     # Update activity
                     await self.queue_manager.async_update_listener_activity(
@@ -113,7 +126,7 @@ class Listener(ABC):
                         output_message = Message(
                             listener_id=self.listener_id,
                             data=output_data,
-                            target_listener=message.listener_id,
+                            target_listener=target_listener,
                             accessed=False,
                             conversation_id=message.conversation_id,
                             needs_response=needs_response,

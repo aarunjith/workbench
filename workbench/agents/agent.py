@@ -80,7 +80,9 @@ class Agent(Listener):
                 f"Invalid message data type ({type(message.data)}): {message}"
             )
 
-    async def _listen(self, message: Message) -> Dict[str, Any]:
+    async def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         original_conversation_id = message.conversation_id
         logger.debug(f"Original conversation id: {original_conversation_id}")
         # Do not invoke the same listener again if its a human, we will send the message to the same listener anyway
@@ -88,7 +90,7 @@ class Agent(Listener):
             listener_id=message.listener_id
         )
         raw_state = await self.state_manager.get_state(
-            conversation_id=original_conversation_id
+            conversation_id=original_conversation_id, metadata=metadata
         )
         if listener_metadata["listener_type"] == "human":
             avoid_listeners = [message.listener_id]
@@ -133,4 +135,14 @@ class Agent(Listener):
             await self._send(tool_message)
             return {"status": "tool_call"}
         # Do not need to invoke any other listener
-        return asdict(response)
+        # If the message came from a tool override the message to the origin listener
+        if listener_metadata["listener_type"] == "tool":
+            metadata = conversation_state.metadata
+            if metadata and metadata.get("origin"):
+                override = metadata["origin"]
+                return {
+                    "status": "response",
+                    "response": asdict(response),
+                    "override": override,
+                }
+        return {"status": "response", "response": asdict(response)}

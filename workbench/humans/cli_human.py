@@ -1,5 +1,5 @@
 from .human import Human, HumanConfig
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..listener import Message
 from logging import getLogger
 import sys
@@ -27,7 +27,9 @@ class CLIHuman(Human):
                 print(prefix, end="", flush=True)
             return prompt()
 
-    def _listen(self, message: Message) -> Dict[str, Any]:
+    def _listen(
+        self, message: Message, metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         # This logic would handle the human listening in for any messages.
         # Only agents can invoke humans and the response will be sent back to the agent only
         # Direct tool calls are not supported at this time
@@ -36,7 +38,6 @@ class CLIHuman(Human):
         conversation_id = message.conversation_id
         current_state = self.state_manager.get_state(conversation_id=conversation_id)
         messages = current_state["messages"]
-
         # Print conversation history
         self._safe_print("\n=== Conversation History ===")
         if messages:
