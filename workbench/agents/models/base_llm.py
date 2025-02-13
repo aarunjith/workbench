@@ -30,7 +30,7 @@ class ModelConfig:
     def provider(self) -> Literal["anthropic", "openai", "ollama"]:
         if self.model_name.startswith("claude"):
             return "anthropic"
-        elif self.model_name.startswith("gpt", "o3"):
+        elif self.model_name.startswith("gpt") or self.model_name.startswith("o3"):
             return "openai"
         elif self.model_name.startswith("ollama"):
             return "ollama"

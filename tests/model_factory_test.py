@@ -4,9 +4,10 @@ import asyncio
 
 
 async def main():
-    os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
+    # os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
     test_config = ModelConfig(
-        model_name="claude-3-5-sonnet-20241022",
+        # model_name="claude-3-5-sonnet-20241022",
+        model_name="ollama/olmo2",
         system_prompt="You are an AI agent. Your goal is to assist the user with their questions.",
     )
 
