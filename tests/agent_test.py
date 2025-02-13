@@ -35,7 +35,7 @@ for logger in loggers:
     logger.setLevel(logging.DEBUG)
 
 # Set up API key
-# os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
+os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Anthropic API Key: ")
 
 # Initialize managers
 queue_manager = QueueManager()
@@ -47,7 +47,7 @@ agent_config = AgentConfig(
     queue_manager=queue_manager,
     state_manager=state_manager,
     model_config=ModelConfig(
-        model_name="ollama/llama3.2",
+        model_name="claude-3-5-sonnet-20240620",
     ),
     agent_description="help the user with their questions.",
     keep_last_messages=10,

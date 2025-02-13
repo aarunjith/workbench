@@ -64,6 +64,7 @@ class OllamaModel(BaseLLM):
         return parsed_response
 
     def get_system_prompt(self, tools_input: List[Dict[str, Any]]) -> str:
+        # IMPROVE: This will only work for llama3.2 this should be some config
         template = """You are an expert in composing functions. You are given a question and a set of possible functions. 
         Based on the question, you will need to make one or more function/tool calls to achieve the purpose. 
         If none of the function can be used, point it out. If the given question lacks the parameters required by the function,
@@ -117,6 +118,7 @@ class OllamaModel(BaseLLM):
         """
         Parse content string into a list of dictionaries with 'name' and 'args' keys.
         Handles multiple function calls within the same brackets, even when embedded in other text.
+        Also handles malformed inputs and complex cases with nested brackets, escaped characters, etc.
         
         Args:
             content (str): Input string containing function calls
@@ -136,44 +138,72 @@ class OllamaModel(BaseLLM):
             [
                 {'name': 'func1', 'args': {'param1': 'value1'}}
             ]
+            >>> parse_content("[func1(text='Has [brackets] and \\'quotes\\' inside')]")
+            [
+                {'name': 'func1', 'args': {'text': "Has [brackets] and 'quotes' inside"}}
+            ]
         """
         results = []
-        
-        # Find all content within square brackets that looks like function calls
-        bracket_pattern = r'\[([\w_-]+\([^]]*\)(?:\s*,\s*[\w_-]+\([^]]*\))*)\]'
-        bracket_matches = re.finditer(bracket_pattern, content)
-        
-        for bracket_match in bracket_matches:
-            function_calls_str = bracket_match.group(1)
-            # Split multiple function calls within the same brackets
-            function_calls = re.split(r'\s*,\s*(?=[\w_-]+\()', function_calls_str)
-            
-            for func_call in function_calls:
-                # Pattern to match function name and arguments
-                func_match = re.match(r'([\w_-]+)\((.*)\)', func_call)
-                
-                if func_match:
-                    func_name = func_match.group(1)
-                    args_str = func_match.group(2)
-                    
-                    # Parse arguments
-                    args = {}
-                    # Pattern to match key='value' pairs
-                    args_pattern = r"(\w+)='([^']*)'|(\w+)=([^,\s]+)"
-                    
-                    arg_matches = re.findall(args_pattern, args_str)
-                    for match in arg_matches:
-                        if match[0]:  # Quoted value
-                            key, value = match[0], match[1]
-                        else:  # Unquoted value
-                            key, value = match[2], match[3]
-                        args[key] = value
-                        
-                    results.append({
-                        'name': func_name,
-                        'args': args
-                    })
-        
-        if not results:
+        try:
+            # First, try to fix common malformed inputs
+            content = content.strip()
+            if content.startswith("[") and not content.endswith("]"):
+                content = content + "]"
+            elif not content.startswith("[") and content.endswith("]"):
+                content = "[" + content
+
+            # Updated pattern to handle nested brackets and be more lenient
+            bracket_pattern = r"\[((?:[^[\]]|\[(?:[^[\]])*\])*)\]?"
+            bracket_matches = re.finditer(bracket_pattern, content)
+
+            for bracket_match in bracket_matches:
+                function_calls_str = bracket_match.group(1)
+                # Only process if it starts with a valid function name pattern
+                if re.match(r"[\w_-]+\(", function_calls_str):
+                    # Split multiple function calls within the same brackets
+                    function_calls = re.split(r"\s*,\s*(?=[\w_-]+\()", function_calls_str)
+
+                    for func_call in function_calls:
+                        # Pattern to match function name and arguments
+                        func_match = re.match(r"([\w_-]+)\((.*?)\)?$", func_call.strip())
+
+                        if func_match:
+                            func_name = func_match.group(1)
+                            args_str = func_match.group(2)
+
+                            # Parse arguments
+                            args = {}
+                            # Updated pattern to handle more complex values including escaped quotes and brackets
+                            args_pattern = r"""
+                                (\w+)=                   # Parameter name
+                                (?:
+                                    '([^'\\]*(?:\\.[^'\\]*)*)'  # Quoted value with possible escapes
+                                    |
+                                    ([^,\s][^,]*?)              # Unquoted value
+                                )
+                                (?=\s*(?:,|\)?))                # Lookahead for comma or closing parenthesis
+                            """
+
+                            arg_matches = re.findall(args_pattern, args_str, re.VERBOSE)
+                            for match in arg_matches:
+                                key = match[0]
+                                # If quoted value present (match[1]), use it; otherwise use unquoted value (match[2])
+                                value = match[1] if match[1] else match[2]
+                                # Handle escaped characters
+                                value = (
+                                    value.replace("\\n", "\n")
+                                    .replace("\\\\", "\\")
+                                    .replace("\\'", "'")
+                                )
+                                args[key] = value
+
+                            results.append({"name": func_name, "args": args})
+
+            if not results:
+                results = content
+
+        except Exception as e:
+            logger.warning(f"Error parsing content: {str(e)}")
             results = content
+
         return results

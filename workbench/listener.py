@@ -141,17 +141,18 @@ class Listener(ABC):
         logger.info(f"Listener {self.listener_id} stopped")
 
     async def get_connected_listeners(
-        self, others: bool = True
+        self, others: bool = True, avoid_listeners: Optional[List[str]] = None
     ) -> List[ListenerMetadata]:
         """Get all connected listeners"""
         listeners = await self.queue_manager.async_get_all_listeners(status="active")
+        avoid_listeners = avoid_listeners or []
         if others:
-            return [
-                ListenerMetadata(**listener)
-                for listener in listeners
-                if listener["listener_id"] != self.listener_id
-            ]
-        return [ListenerMetadata(**listener) for listener in listeners]
+            avoid_listeners.append(self.listener_id)
+        return [
+            ListenerMetadata(**listener)
+            for listener in listeners
+            if listener["listener_id"] not in avoid_listeners
+        ]
 
     def _generate_listener_id(self, prefix: str = "listener") -> str:
         return f"{prefix}-{uuid4().hex[:6]}"

@@ -83,6 +83,14 @@ class Agent(Listener):
     async def _listen(self, message: Message) -> Dict[str, Any]:
         original_conversation_id = message.conversation_id
         logger.debug(f"Original conversation id: {original_conversation_id}")
+        # Do not invoke the same listener again if its a human, we will send the message to the same listener anyway
+        listener_metadata = await self.queue_manager.async_get_listener_metadata(
+            listener_id=message.listener_id
+        )
+        if listener_metadata["listener_type"] == "human":
+            avoid_listeners = [message.listener_id]
+        else:
+            avoid_listeners = None
 
         raw_state = await self.state_manager.get_state(
             conversation_id=original_conversation_id
@@ -94,7 +102,9 @@ class Agent(Listener):
         logger.debug(f"Conversation state after truncation: {conversation_state}")
         input_message = await self._process_message(message)
         conversation_state.add_message(input_message)
-        connected_listeners = await self.get_connected_listeners()
+        connected_listeners = await self.get_connected_listeners(
+            avoid_listeners=avoid_listeners
+        )
         response = await self.base_llm.generate_response(
             conversation_state.messages, connected_listeners
         )
