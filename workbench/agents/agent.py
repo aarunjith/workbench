@@ -87,20 +87,22 @@ class Agent(Listener):
         listener_metadata = await self.queue_manager.async_get_listener_metadata(
             listener_id=message.listener_id
         )
-        if listener_metadata["listener_type"] == "human":
-            avoid_listeners = [message.listener_id]
-        else:
-            avoid_listeners = None
-
         raw_state = await self.state_manager.get_state(
             conversation_id=original_conversation_id
         )
+        if listener_metadata["listener_type"] == "human":
+            avoid_listeners = [message.listener_id]
+        else:
+            # This message came from a tool
+            avoid_listeners = None
+
         conversation_state = State.from_dict(raw_state)
         logger.debug(f"Conversation state: {conversation_state}")
         # IMPROVE: Need other strategies to manage the messages
         conversation_state.truncate_messages(keep_last=self.keep_last_messages)
         logger.debug(f"Conversation state after truncation: {conversation_state}")
         input_message = await self._process_message(message)
+        # Add the incoming message to the conversation history
         conversation_state.add_message(input_message)
         connected_listeners = await self.get_connected_listeners(
             avoid_listeners=avoid_listeners
@@ -129,5 +131,6 @@ class Agent(Listener):
             )
             # Send a message to the tool listener
             await self._send(tool_message)
+            return {"status": "tool_call"}
         # Do not need to invoke any other listener
         return asdict(response)

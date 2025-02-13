@@ -95,6 +95,12 @@ class Listener(ABC):
 
                     # Process message using the subclass implementation
                     output_data = await self._listen(message)
+                    if (
+                        isinstance(output_data, dict)
+                        and output_data.get("status") == "tool_call"
+                    ):
+                        # The agent is waiting for a response from the tool
+                        continue
 
                     # Update activity
                     await self.queue_manager.async_update_listener_activity(
